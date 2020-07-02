@@ -1,0 +1,556 @@
+---
+title: "03.02.2020 BRCA strings"
+output: word_document
+---
+
+# In this version 
+BRCA1_and_BRCA2 analysis was badly written. There were some searchers for non-brca1/2 specific terms in pathogenic, wt and VUS. This lead to incorrect results, about 4 per 100, but this is also due to the second mistake:
+
+THe order of ifelse in BRCA1_andBRCA2 had to be changed too. now the order is pathogenic -> VUS -> WT instead of pathogenic -> WT -> VUS.
+
+# To be fixed
+
+Maybe look at the NAs in uniques? make sure they can be replaced the way I did.
+
+there are 40 more BRCA1 pathogens than BRCA2. look for some stats on frequencies.
+
+# Setup
+
+```{r setup}
+knitr::opts_knit$set(root.dir="s:/SEED_projects/S0224_MSc_BrCa/LTH19023_MRes_BreastCancer/15.01.2020 Analysis/")
+```
+
+
+## loading packages
+```{r}
+library(readxl)
+library(stringr)
+library(dplyr)
+library(tidyr)
+library(gtools)
+```
+
+## loading and preparing data
+
+Loading the Genetics file, renaming columns, dropping codes, concatenating Report with Summary, removing special symbols
+
+```{r}
+
+Genetics1 <- read_excel("Data/LTH19023_BRC_Genetics.xlsx")
+Genetics <- read_excel("Data/LTH19023_BRC_Genetics.xlsx") %>%
+  rename(ID = PseudoPatientID, Report = DnaLabReport, Summary = DnaLabReportSummary) %>%
+  transmute(ID, Report = str_c(Report, Summary, sep = " Summary: ")) %>%
+  mutate(Report = tolower(Report), BRCA1 = "", BRCA2 = "", test = "") %>%
+  mutate(Report = str_replace_all(string = Report, pattern = c( "\\*" = " ", "   " = " ", "       " = " ", "  " = " ", "," = "", "  " = " ", "\\>" = "", "\\(" = "", "\\)" = "", "\\_" = "", "\\+" = "", "\\/" = " ")))
+  
+```
+
+## Checking the data
+
+```{r}
+glimpse(Genetics)
+```
+
+# Removing multiplicated IDs. These will be analysed later
+```{r}
+# Subset Genetics using the column ID, so that only IDs that appear once, i.e. never duplicate, stay.
+Genetics_unique<- Genetics %>%
+  subset(
+    !(ID %in% subset(ID, duplicated(ID)))
+        )
+# Subset Genetics using the column ID, so that only IDs that appear more than once stay. Arrange by ID for confirmation 
+Genetics_duplicated <- Genetics %>%
+  subset(
+    ID %in% subset(ID, duplicated(ID))
+        ) %>%
+  arrange(ID)
+```
+
+# Mention both BRCA1 and BRCA2, one of them or neither. Remove uninformative terms from BRCA1 and 2 dataset 
+```{r}
+# four rows contain no mention of brca at all and will not be analysed further
+BRCA1_2_no_mention <- Genetics_unique %>%
+  subset(!(str_detect(Report, pattern = "brca1|brca2"))) %>%
+  rbind(filter(Genetics_unique, str_detect(Genetics_unique$Report, pattern = "word report summary: word report donna brca2 file")))
+
+# contains all the rows that contain terms brca1 or brca2
+BRCA1_2_mention <- Genetics_unique %>%
+  subset(str_detect(Report, pattern = "brca1|brca2")) %>%
+  subset(!(str_detect(Report, pattern = "word report summary: word report donna brca2 file"))) %>%
+  subset(!(str_detect(ID, pattern = "539729AD10F2A600FBE09485EFB4699A7BAF779F6BC168D3CF18C8A2A97F51BB")))	
+
+# split the data into BRCA1 specific, BRCA2 specific or those that mention both BRCA1 and BRCA2. The first two did not test for the other BRCA. 
+
+BRCA1_only <- BRCA1_2_mention %>%
+  subset(!(str_detect(Report, pattern = "brca2|brca1//&2"))) %>%
+  mutate(test = ifelse(
+                                    str_detect(Report, pattern = "brca1 scanning was not completed|if further screening of brca1 is required please|please note that sequencing of brca1 is incomplete and no further testing will be performed|if further screening of brca1 is required please|further brca1 screening can be performed on request|requirement to continue brca1 screening|this analysis is unable to exclude the possibility|does not exclude the possibility|unable to exclude the possibility|mutation scanning in brca1 is available upon|if there is a clinical requirement to continue brca1|mutation scanning in brca1 is in progress|currently undergoing mutation scanning in brca1"), 
+                             "incomplete for brca1", 
+                              ""),
+         specific = ifelse(str_detect(Report, pattern = "does not have the familial|does not have the familial likely pathogenic brca1|the familial brca1 variant is absent in this patient.|the familial brca1 deletion is absent in this patient.|the familial brca1 mutation is absent in this patient.|the familial brca1 mutation is absent in this patient.|this patient does not have the familial brca1 mutation.|the familial brca1 sequence variant is absent in this patient.|the familial pathogenic brca1 variant is absent in this patient.|the familial pathogenic brca1 mutation is absent in this patient.|the familial pathogenic brca1 duplication is absent in this patient.|the familial likely pathogenic brca1 sequence variant is absent in this patient."), 
+                           "familial test",""))
+
+BRCA2_only <- BRCA1_2_mention %>%
+  subset(!(str_detect(Report, pattern = "brca1"))) %>%
+  subset(str_detect(Report, pattern = "brca2")) %>%
+  mutate(test = ifelse(
+                                    str_detect(Report, pattern = "brca2 scanning was not completed|if further screening of brca2 is required please|please note that sequencing of brca2 is incomplete and no further testing will be performed|if further screening of brca2 is required please|further brca2 screening can be performed on request|requirement to continue brca2 screening|this analysis is unable to exclude the possibility|does not exclude the possibility|unable to exclude the possibility|mutation scanning in brca2 is available upon|if there is a clinical requirement to continue brca2|mutation scanning in brca2 is in progress|currently undergoing mutation scanning in brca2"), 
+                             "incomplete for brca2", 
+                              ""),
+         specific = ifelse(str_detect(Report, pattern = "does not have the familial|does not have the familial likely pathogenic brca2|the familial brca2 variant is absent in this patient.|the familial brca2 deletion is absent in this patient.|the familial brca2 mutation is absent in this patient.|the familial brca2 mutation is absent in this patient.|this patient does not have the familial brca2 mutation.|the familial brca2 sequence variant is absent in this patient.|the familial pathogenic brca2 variant is absent in this patient.|the familial pathogenic brca2 mutation is absent in this patient.|the familial pathogenic brca2 duplication is absent in this patient.|the familial likely pathogenic brca2 sequence variant is absent in this patient."), 
+                           "familial test",""))
+
+# Record the testing done in a patient and then remove uninformative phrases. This way I can analyse the BRCA1_2_mention data the same way I did BRCA1_only and BRCA2_only. 
+BRCA1_2_only_clean <- BRCA1_2_mention %>%
+  subset(!(ID %in% c(BRCA2_only$ID,  BRCA1_only$ID))) %>%
+  mutate(test = ifelse(
+                        str_detect(Report, pattern = "this patient has been screened for brca1 and brca2|this patient has been screened for mutations in all coding exons of brca1 and brca2|scanning for mutations in brca1 and brca2 is therefore complete|this patient has been screened for variants in brca1 and brca2|scanning for mutations in brca1 and brca2 is now complete.|brca1 and brca2 screening is now complete.|scanning for mutations in brca1 and brca2 is therefore considered complete|this patient has been screened for mutations in the following cancer predisposing genes by sequence and dosage analysis: apc bmpr1a brca1 brca2|predisposing genes by sequence and dosage analysis: atm brca1 brca2|by sequence and dosage analysis: apc bmpr1a brca1 brca2|by sequence and dosage analysis: brca1 brca2|analysis: atm brca1 brca2|analysis:  apc bmpr1a brca1 brca2|analysis: atm bap1 brca1 brca2|analysis:  brca1 brca2|screened for variants in brca1 & brca2|screened for variants in brca1 brca2|analysis: atm  brca1 brca2|screened by sequence analysis in this patient.  apc bmpr1a  brca1  brca2|analysis in this patient.  apc  bmpr1a  brca1 brca2|analysis: apc atm bmpr1a brca1 brca2|analysis: atm  bap1 brca1 brca2|analysis in this patient. apc bmpr1a brca1 brca2|analysis in this patient. brca1 brca2|been screened for mutations in brca1 amd brca2|analysis: aip brca1 brca2"), 
+                             "full for both",
+                             ifelse(
+                                    str_detect(Report, pattern = "brca1 brca2 scanning was not completed|if further screening of brca1 and brca2 is required please|please note that sequencing of brca1 and brca2 is incomplete and no further testing will be performed|if further screening of brca1 and brca2 is required please|further brca1 brca2 screening can be performed on request|requirement to continue brca1 brca2 screening|this analysis is unable to exclude the possibility|does not exclude the possibility|unable to exclude the possibility|please contact the laboratory if full brca1 and brca2 screening is required"), 
+                             "incomplete each", 
+                             ifelse(
+                                    str_detect(Report, pattern = "mutation scanning in brca1 is available upon|if there is a clinical requirement to continue brca1|mutation scanning in brca1 is in progress|currently undergoing mutation scanning in brca1"), 
+                             "incomplete for brca1", 
+                             ifelse(
+                                    str_detect(Report, pattern = "mutation scanning in brca2 is available upon|if there is a clinical requirement to continue brca2|mutation scanning in brca2 is in progress|currently undergoing mutation scanning in brca2"), 
+                             "incomplete for brca2", "")))),
+         specific = ifelse(str_detect(Report, pattern = "does not have the familial|does not have the familial likely pathogenic brca1|does not have the familial likely pathogenic brca2|the familial brca1 variant is absent in this patient.|the familial brca2 variant is absent in this patient.|the familial brca1 deletion is absent in this patient.|the familial brca2 deletion is absent in this patient.|the familial brca1 mutation is absent in this patient.|the familial brca2 mutation is absent in this patient.|the familial brca1 mutation is absent in this patient.|the familial brca2 mutation is absent in this patient.|this patient does not have the familial brca1 mutation.|this patient does not have the familial brca2 mutation.|the familial brca2 sequence variant is absent in this patient.|the familial brca1 sequence variant is absent in this patient.|the familial pathogenic brca1 variant is absent in this patient.|the familial pathogenic brca2 variant is absent in this patient.|the familial pathogenic brca1 mutation is absent in this patient.|the familial pathogenic brca2 mutation is absent in this patient.|the familial pathogenic brca1 duplication is absent in this patient.|the familial pathogenic brca2 duplication is absent in this patient.|the familial likely pathogenic brca2 sequence variant is absent in this patient.|the familial likely pathogenic brca1 sequence variant is absent in this patient"), 
+                           "familial test","")) %>%
+  mutate(Report = str_replace_all(string = Report, pattern = c("this patient has been screened for brca1 and brca2" = "", 
+                                                               "this patient has been screened for mutations in all coding exons of brca1 and brca2" = "", 
+                                                               "scanning for mutations in brca1 and brca2 is therefore complete" = "", 
+                                                               "this patient has been screened for variants in brca1 and brca2" = "", 
+                                                               "scanning for mutations in brca1 and brca2 is now complete." = "",
+                                                               "if further screening of brca1 and brca2 is required please" = "",
+                                                               "please note that sequencing of brca1 and brca2 is incomplete and no further testing will be performed" = "", 
+                                                               "if further screening of brca1 and brca2 is required please" = "", "brca1 and brca2 screening is now complete." = "", 
+                                                               "scanning for mutations in brca1 and brca2 is therefore considered complete" = "", 
+                                                               "this patient has been screened for mutations in the following cancer predisposing genes by sequence and dosage analysis: apc bmpr1a brca1 brca2" = "", 
+                                                               "predisposing genes by sequence and dosage analysis: atm brca1 brca2" = "", 
+                                                               "by sequence and dosage analysis: apc bmpr1a brca1 brca2" = "", 
+                                                               "by sequence and dosage analysis: brca1 brca2" = "", 
+                                                               "analysis: atm brca1 brca2" = "", 
+                                                               "analysis:  apc bmpr1a brca1 brca2" = "", 
+                                                               "analysis: atm bap1 brca1 brca2" = "", 
+                                                               "analysis:  brca1 brca2" = "", 
+                                                               "screened for variants in brca1 & brca2" = "", 
+                                                               "screened for variants in brca1 brca2" = "", 
+                                                               "analysis: atm  brca1 brca2" = "", 
+                                                               "screened by sequence analysis in this patient.  apc bmpr1a  brca1  brca2" = "", 
+                                                               "analysis in this patient.  apc  bmpr1a  brca1 brca2" = "", 
+                                                               "analysis: apc atm bmpr1a brca1 brca2" = "", 
+                                                               "analysis: atm  bap1 brca1 brca2" = "", 
+                                                               "analysis in this patient. apc bmpr1a brca1 brca2" = "", 
+                                                               "analysis in this patient. brca1 brca2" = "", 
+                                                               "sending a sample from the above patient for brca1 brca2" = "",
+                                                               "mutation scanning in brca2 is available upon" = "", 
+                                                               "mutation scanning in brca2 is in progress" = "", 
+                                                               "mutation scanning in brca1 is in progress" = "", 
+                                                               "been screened for mutations in brca1 amd brca2" = "", 
+                                                               "further brca1 brca2 screening can be performed on request" = "",
+                                                               "requirement to continue brca1 brca2 screening" = "", 
+                                                               "scanning for mutations in brca1 is in progress" = "", 
+                                                               "currently undergoing mutation scanning in brca2" = "", 
+                                                               "analysis: aip brca1 brca2" = "", 
+                                                               "brca2 have been excluded as recommended" = "",
+                                                               "if there is a clinical requirement to continue brca2" = "")))
+
+
+
+
+
+```
+
+# BRCA1 with no BRCA2 
+```{r}
+BRCA1_pathogenic <- BRCA1_only %>%
+  subset(str_detect(Report, pattern = "is heterozygous for the pathogenic|this is consistent with the patient's affected status|this result significantly increases her risk|consistent with their affected status|is highly likely to be pathogenic|this result is consistent with the patient's affected status|this result is consistant|this change represents a pathogenic mutation|significantly increases this patient's risk|consistent with her affected status")) %>%
+  mutate(BRCA1 = "pathogenic", BRCA2 = "not tested")
+
+BRCA1_inconclusive <- BRCA1_only %>%
+  subset(str_detect(Report, pattern = "a repeat sample is required")) %>%
+  mutate(BRCA1 = rep("inconclusive", length(ID)), BRCA2 = "not tested")
+
+
+BRCA1_VUS <-BRCA1_only %>%
+  subset(str_detect(Report, pattern = "variant of unknown significance has been detected")) %>%
+  mutate(BRCA1 = "VUS", BRCA2 = "not tested")
+  
+BRCA1_NOT_pathogenic <- BRCA1_only %>%
+  subset(str_detect(Report, pattern = "this result significantly reduces her risk|mutation is absent in this patient|does not have the familial pathogenic")) %>%
+  mutate(BRCA1 = "wild type", BRCA2 = "not tested")
+  
+
+BRCA1_dup_check <- rbind(BRCA1_pathogenic, BRCA1_NOT_pathogenic, BRCA1_inconclusive, BRCA1_VUS) %>%
+  subset((ID %in% subset(ID, duplicated(ID))))
+
+BRCA1_output <- rbind(BRCA1_pathogenic, BRCA1_NOT_pathogenic, BRCA1_inconclusive, BRCA1_VUS) 
+
+BRCA1_missed_check <- BRCA1_only %>%
+  subset(!(ID %in% BRCA1_output$ID))
+
+if (nrow(rbind(BRCA1_dup_check, BRCA1_missed_check))>=1) {
+  stop("Error in BRCA sum check")
+}
+
+rm(BRCA1_missed_check, BRCA1_dup_check)
+```
+
+
+
+# BRCA2 with no BRCA1 
+```{r}
+BRCA2_pathogenic <- BRCA2_only %>%
+  subset(str_detect(Report, pattern = "is heterozygous for the pathogenic|this is consistent with the patient's affected status|this result significantly increases her risk|consistent with their affected status|is highly likely to be pathogenic|this result is consistent with the patient's affected status|this result is consistant|this change represents a pathogenic mutation|significantly increases this patient's risk|consistent with her affected status|this significantly increases her risk")) %>%
+  mutate(BRCA2 = "pathogenic", BRCA1 = "not tested")
+
+BRCA2_inconclusive <- BRCA2_only %>%
+  subset(str_detect(Report, pattern = "a repeat sample is required|is inconclusive")) %>%
+  mutate(BRCA2 = "inconclusive", BRCA1 = "not tested")
+
+BRCA2_VUS <-BRCA2_only %>%
+  subset(str_detect(Report, pattern = "variant of unknown significance has been detected")) %>%
+  mutate(BRCA2 = "VUS", BRCA1 = "not tested")
+  
+BRCA2_NOT_pathogenic <- BRCA2_only %>%
+  subset(str_detect(Report, pattern = "this result significantly reduces her risk|mutation is absent in this patient|no pathogenic mutations have been identified|no mutation of brca2 has|no mutation in brca2|pathogenic brca2 mutation is absent|likely pathogenic brca2 variant is absent|the brca2 and tp53 variants identified in this patient's tumour were not detected in their blood sample")) %>%
+  mutate(BRCA2 = "wild type", BRCA1 = "not tested")
+  
+
+BRCA2_dup_check <- rbind(BRCA2_pathogenic, BRCA2_NOT_pathogenic, BRCA2_inconclusive, BRCA2_VUS) %>%
+  subset((ID %in% subset(ID, duplicated(ID))))
+
+BRCA2_output <- rbind(BRCA2_pathogenic, BRCA2_NOT_pathogenic, BRCA2_inconclusive)
+
+BRCA2_missed_check <- BRCA2_only %>%
+  subset(!(ID %in% BRCA2_output$ID))
+
+if (nrow(rbind(BRCA2_dup_check, BRCA2_missed_check))>=1) {
+  stop("Error in BRCA sum check")
+}
+
+rm(BRCA2_missed_check, BRCA2_dup_check)
+```
+
+# BRCA1 and BRCA2
+```{r}
+numbers_symbols <- c(">|[:digit:]|c\\.|exons|exon|_|p\\.|=|\\*")
+
+cleanup<- c( "   " = " ", "  " = " ", " del " = " ", " ins " = " ", " dup " = " ", " - " = " ", " x " = " ", " x\\. " = " ", " fs " = " ", " \\. " = " ")
+
+amino_acids <- c("[:digit:]ala|[:digit:]cys|[:digit:]asp|[:digit:]glu|[:digit:]phe|[:digit:]gly|[:digit:]his|[:digit:]ile|[:digit:]lys|[:digit:]leu|[:digit:]met|[:digit:]asn|[:digit:]pyl|[:digit:]pro|[:digit:]gln|[:digit:]arg|[:digit:]ser|[:digit:]thr|[:digit:]sec|[:digit:]val|[:digit:]trp|[:digit:]tyr|ala[:digit:]|cys[:digit:]|asp[:digit:]|glu[:digit:]|phe[:digit:]|gly[:digit:]|his[:digit:]|ile[:digit:]|lys[:digit:]|leu[:digit:]|met[:digit:]|asn[:digit:]|pyl[:digit:]|pro[:digit:]|gln[:digit:]|arg[:digit:]|ser[:digit:]|thr[:digit:]|sec[:digit:]|val[:digit:]|trp[:digit:]|tyr[:digit:]")
+
+framseshift <- "alafs|cysfs|aspfs|glufs|phefs|glyfs|hisfs|ilefs|lysfs|leufs|metfs|asnfs|pylfs|profs|glnfs|argfs|serfs|thrfs|secfs|valfs|trpfs|tyrfs"
+
+atcg <- c("a", "t", "c", "g")
+
+atcg_perm2 <- permutations(4, 2, atcg, repeats.allowed = T) %>%
+  as.data.frame() %>%
+  mutate(K1 = str_c(V1, V2)) %>%
+  pull(K1)
+
+atcg_perm3 <- permutations(4, 3, atcg, repeats.allowed = T) %>%
+  as.data.frame() %>%
+  mutate(K1 = str_c(V1, V2, V3)) %>%
+  pull(K1)
+
+atcg_perm4 <- permutations(4, 4, atcg, repeats.allowed = T) %>%
+  as.data.frame() %>%
+  mutate(K1 = str_c(V1, V2, V3, V4)) %>%
+  pull(K1)
+
+atcg_perm5 <- permutations(4, 5, atcg, repeats.allowed = T) %>%
+  as.data.frame() %>%
+  mutate(K1 = str_c(V1, V2, V3, V4, V5)) %>%
+  pull(K1)
+
+atcg_perm <- paste(c(atcg_perm5, atcg_perm4, atcg_perm3, atcg_perm2, atcg))
+
+
+mutation_nomenclature <- as.data.frame(cbind(type = c(rep("dup", length(atcg_perm)),
+                                  rep("del",length(atcg_perm)),
+                                  rep("ins", length(atcg_perm))), 
+                         mut =  atcg_perm )) %>%
+  mutate(V3 = str_c(type, mut))
+
+mutations_with_numbers <- c(str_c("[:digit:]", mutation_nomenclature$V3), str_c("[:digit:]", atcg_perm))
+
+remove <- paste(c(amino_acids, paste(mutations_with_numbers, collapse = "|"), numbers_symbols), collapse = "|")
+
+BRCA1_2_assigned <- BRCA1_2_only_clean %>%
+  mutate(Report = str_replace_all(string = Report, pattern = c("brca1"= "brcaone", "brca2" = "brcatwo"))) %>%
+  mutate(Report = str_remove_all(string = Report, pattern = remove)) %>%
+  mutate(Report = str_remove_all(string = Report, pattern = framseshift)) %>%
+  mutate(Report = str_replace_all(string = Report, pattern = cleanup)) %>%
+  mutate(BRCA1 = 
+                ifelse(str_detect(Report, pattern = "is heterozygous for the pathogenic brcaone|is heterozygous for a pathogenic duplication of brcaone|is heterozygous for a pathogenic brcaone|patient is at high risk of developing further brcaone-related cancers|this patient is heterozygous for the brcaone frameshift|is heterozygous for the brcaone nonsense mutation|patient is heterozygous for the pathogenic mutations in brcaone|brcaone sequence variant which is likely to be pathogenic|is heterozygous for a pathogenic deletion of brcaone|duplication of in brcaone has been identified|mutations in of brcaone. this result is consistent with her affected status|is heterozygous for the familial pathogenic brcaone|detected the ashkenazi jewish common mutation: in of brcaone in this patient. this result is consistent with her affected status|this patient is heterozygous for the nonsense mutation in brcaone|this patient is heterozygous for two pathogenic variants: in brcaone and in brcatwo|deletion of in brcaone has been identified|four copies of brcaone have been identified"),
+                "pathogenic",
+                             ifelse(str_detect(Report, pattern = "this patient is heterozygous for a brcaone variant of uncertain clinical significance|in intron  of brcaone. evaluation of the available evidence is inconclusive|brcaone sequence variant which is of uncertain clinical significance|is heterozygous for the brcaone sequence variant which is of uncertain clinical significance|is heterozygous for the brcaone sequence variants and which are of uncertain clinical significance|is heterozygous for the brcaone sequence variant which|heterozygous for the brcaone sequence variant his change has previously been reported on the bic database as having no clinical significance|is heterozygous for the brcaone sequence variant . this change has previously been reported on the bic database as a variant of no clinical significance|variant of unknown clinical significance has been identified in brcaone in this patient|patient is heterozygous for the brcaone sequence variant this change has previously been reported on the bic database as having no clinical significance|is heterozygous for the brcaone sequence variant this change has previously been reported on the bic database as a variant of no clinical significance|review of the evidence for the brcaone varaint was inconclusive therefore the pathogenicity of this variant cannot be determined|is heterozygous for the brcaone sequence variant evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcaone sequence variant this change has previously been reported on the bic database as a variant of unknown clinical significance|is heterozygous for the brcaone sequence variant in intron this change has previously been reported on the bic database as an unknown variant"),
+                              "vus",
+                                          ifelse(str_detect(Report, pattern = "no mutation in brcaone|no pathogenic mutation has been identified in this patient|no pathogenic mutation in brcaone or brcatwo|the common ashkenazi jewish mutations have not been detected in this patient.|no clearly pathogenic change in brcaone or brcatwo has been identified|summary: no pathogenic mutation has been identified in this patient.|no pathogenic variant in brcaone or brcatwo has been identified|no pathogenic variant has been identified in brcaone and brcatwo|no pathogenic variant in brcaone brcatwo or palb2 has been identified in this patient|no mutation in brcaone or brcatwo has been identified|brcaone& have not been detected in this patient|summary: no pathogenic variant in brcaone brcatwo|this patient is heterozygous for the sequence changes  and in brcaone and in brcatwo. evaluation of the available evidence² suggests that these variants are likely to be benign|is heterozygous for the brcaone sequence variants and evaluation of the available evidence suggests that these variants are likely to be benign|patient is heterozygous for the brcaone sequence variant evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcaone sequence variant du evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcaone sequence variant evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcaone sequence variant evaluation of the available evidence suggests that this variant is likely to be benign"),
+                                          "wild type", 
+                                                ifelse(!(str_detect(Report, pattern = "brcatwo") & test == "full for both"),
+                                                "wild type",
+                                                            ifelse(str_detect(Report, pattern = "summary: no pathogenic variant has been identified in this patient") & test == "full for both",
+                                                            "wild type", "" ))))),
+         BRCA2 = ifelse(str_detect(Report, pattern = "is heterozygous for the pathogenic brcatwo|is heterozygous for a pathogenic duplication of brcatwo|is heterozygous for a pathogenic brcatwo|patient is at high risk of developing further brcatwo-related cancers|this patient is heterozygous for the brcatwo frameshift|is heterozygous for the brcatwo nonsense mutation|is heterozygous for the nonsense mutationin brcatwo|heterozygous for a pathogenic deletion of brcatwo|is heterozygous for the brcatwo sequence variant which is likely to be pathogenic|is heterozygous for the frameshift mutation in brcatwo|is heterozygous for the frameshift mutation in brcatwo|deletion of to  in brcatwo has been|is heterozygous for the pathogenic mutation in brcatwo|is heterozygous for the nonsense mutation x in brcatwo|is heterozygous for the frameshift mutation  in brcatwo|is heterozygous for the frameshift mutation in brcatwo|frameshift mutation in brcatwo|is heterozygous for the nonsense mutation x in brcatwo|is heterozygous for the splice site mutation in brcatwo|is heterozygous for the frameshift mutation  in brcatwo|is heterozygous for the frameshift mutation in brcatwo|is heterozygous for a deletion of of the brcatwo gene which has previously been reported and is likely to represent a pathogenic mutation|mutations in of brcatwo. this result is consistent with her affected status|is heterozygous for the familial pathogenic brcatwo|detected the ashkenazi jewish common mutation: in of brcatwo in this patient. this result is consistent with her affected status|this patient is heterozygous for the nonsense mutation in brcatwo|this patient is heterozygous for two pathogenic variants: in brcaone and in brcatwo|deletion of in brcatwo has been identified"),
+                        "pathogenic", 
+                        ifelse(str_detect(Report, pattern = "this patient is heterozygous for a brcatwo variant of uncertain clinical significance|in intron  of brcatwo. evaluation of the available evidence is inconclusive|brcatwo sequence variant which is of uncertain clinical significance|is heterozygous for the brcatwo sequence variant which is of uncertain clinical significance|is heterozygous for the brcatwo sequence variants and which are of uncertain clinical significance|is heterozygous for the brcatwo sequence variant which|heterozygous for the brcatwo sequence variant his change has previously been reported on the bic database as having no clinical significance|is heterozygous for the brcatwo sequence variant . this change has previously been reported on the bic database as a variant of no clinical significance|variant of unknown clinical significance has been identified in brcatwo in this patient|patient is heterozygous for the brcatwo sequence variant this change has previously been reported on the bic database as having no clinical significance|is heterozygous for the brcatwo sequence variant this change has previously been reported on the bic database as a variant of no clinical significance|review of the evidence for the brcatwo varaint was inconclusive therefore the pathogenicity of this variant cannot be determined|is heterozygous for the brcatwo sequence variant this change has previously been reported on the bic database as a variant of unknown clinical significance|is heterozygous for the brcatwo sequence variant in intron this change has previously been reported on the bic database as an unknown variant"),
+                               "vus", 
+                                           ifelse(str_detect(Report, pattern = "no mutation in brcatwo|no pathogenic mutation has been identified in this patient|does not have the familial brcatwo sequence variant|does not have the familial pathogenic brcatwo mutation|no pathogenic mutation in brcaone or brcatwo|the common ashkenazi jewish mutations have not been detected in this patient.|summary: no pathogenic mutation has been identified in this patient.|no pathogenic variant in brcaone or brcatwo has been identified|no pathogenic variant has been identified in brcaone and brcatwo|no pathogenic variant in brcaone brcatwo or palb2 has been identified in this patient|no mutation in brcaone or brcatwo has been identified|brcaone& have not been detected in this patient|summary: no pathogenic variant in brcaone brcatwo|this patient is heterozygous for the sequence changes  and in brcaone and in brcatwo. evaluation of the available evidence² suggests that these variants are likely to be benign|is heterozygous for the brcatwo sequence variants and evaluation of the available evidence suggests that these variants are likely to be benign|patient is heterozygous for the brcaone sequence variant evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcatwo sequence variant du evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcatwo sequence variant evaluation of the available evidence suggests that this variant is likely to be non-pathogeni|is heterozygous for the brcatwo sequence variant evaluation of the available evidence suggests that this variant is likely to be benign"),
+                                              "wild type", 
+                                                    ifelse(!(str_detect(Report, pattern = "brcatwo") & test == "full for both"),
+                                                    "wild type", 
+                                                                ifelse(str_detect(Report, pattern = "summary: no pathogenic variant has been identified in this patient") & test == "full for both",
+                                                                 "wild type", "")))))
+         )
+```
+
+# Combine
+
+```{r}
+# Combine into final output for unique IDs that mention BRCA
+Genetics_unique_output <- rbind(BRCA1_output, BRCA2_output, BRCA1_2_assigned)
+
+empty_as_na <- function(x){
+    if("factor" %in% class(x)) x <- as.character(x) ## since ifelse wont work with factors
+    ifelse(as.character(x)!="", x, NA)
+}
+
+Genetics_unique_output <- rbind(BRCA1_output, BRCA2_output, BRCA1_2_assigned) %>%
+  mutate(BRCA1 = empty_as_na(BRCA1),
+         BRCA1 =ifelse(is.na(BRCA1) & str_detect(specific, pattern = "familial"), 
+                       "incomplete/familial", 
+                ifelse(is.na(BRCA1) & str_detect(test, pattern = "full for both"), 
+                        "wild type", 
+                ifelse(is.na(BRCA1) & str_detect(test, pattern = "incomplete",) & str_detect(BRCA2, pattern = "pathogenic"), 
+                       "incomplete, pat in BRCA2", 
+                ifelse(is.na(BRCA1) & str_detect(test, "incomplete for brca1|incomplete each"), 
+                       "needs further testing",
+                       BRCA1)))),
+         BRCA1 =ifelse(BRCA1 == "wild type" & specific == "familial test", 
+                        "incomplete/familial",  
+                ifelse(BRCA1 == "wild type" & str_detect(BRCA2, pattern = "pathogenic") & str_detect(test, pattern = "incomplete each|incomplete for brca1"), 
+                        "incomplete, pat in BRCA2", 
+                ifelse(BRCA1 == "wild type" & str_detect(test, pattern = "incomplete each|incomplete for brca1"), 
+                        "needs further testing",
+                        BRCA1))),
+         BRCA2 = empty_as_na(BRCA2),
+         BRCA2 =ifelse(is.na(BRCA2) & str_detect(specific, pattern = "familial"), 
+                  "incomplete/familial", 
+                ifelse(is.na(BRCA2) & str_detect(test, pattern = "full for both"), 
+                        "wild type", 
+                ifelse(is.na(BRCA2) & str_detect(test, pattern = "incomplete",) & str_detect(BRCA1, pattern = "pathogenic"), 
+                       "incomplete, pat in BRCA1", 
+                ifelse(is.na(BRCA2) & str_detect(test, "incomplete for brca2|incomplete each"), 
+                       "needs further testing",
+                        BRCA2)))),
+         BRCA2 =ifelse(BRCA2 == "wild type" & specific == "familial test", 
+                        "incomplete/familial",   
+                ifelse(BRCA2 == "wild type" & str_detect(BRCA1, pattern = "pathogenic") & str_detect(test, pattern = "incomplete each|incomplete for brca2"), 
+                        "incomplete, pat in BRCA1",
+                ifelse(BRCA2 == "wild type" & str_detect(test, pattern = "incomplete each|incomplete for brca2"), 
+                        "needs further testing",
+                        BRCA2)))
+         )
+
+#check 
+Genetics_unique_output_missed_check <- BRCA1_2_mention %>%
+  subset(!(ID %in% Genetics_unique_output$ID))
+
+Genetics_unique_output_dup_check <- Genetics_unique_output %>%
+  subset((ID %in% subset(ID, duplicated(ID))))
+
+
+if (nrow(rbind(Genetics_unique_output_missed_check, Genetics_unique_output_dup_check))>=1) {
+  stop("Error in BRCA sum check")
+}
+
+rm(Genetics_unique_output_missed_check, Genetics_unique_output_dup_check)
+```
+
+# Summary of unique IDs
+```{r}
+Genetics_unique_output %>%
+  count(BRCA1)
+
+
+Genetics_unique_output %>%
+  count(BRCA2)
+
+summary_unique <- Genetics_unique_output %>%
+  count(BRCA1, BRCA2) %>%
+  arrange(BRCA1)
+
+```
+
+# Analysis of the duplicated IDs
+```{r}
+Duplicated_analysis <- Genetics_duplicated %>%
+  mutate(test = ifelse(
+                        str_detect(Report, pattern = "this patient has been screened for brca1 and brca2|this patient has been screened for mutations in all coding exons of brca1 and brca2|scanning for mutations in brca1 and brca2 is therefore complete|this patient has been screened for variants in brca1 and brca2|scanning for mutations in brca1 and brca2 is now complete.|brca1 and brca2 screening is now complete.|scanning for mutations in brca1 and brca2 is therefore considered complete|this patient has been screened for mutations in the following cancer predisposing genes by sequence and dosage analysis: apc bmpr1a brca1 brca2|predisposing genes by sequence and dosage analysis: atm brca1 brca2|by sequence and dosage analysis: apc bmpr1a brca1 brca2|by sequence and dosage analysis: brca1 brca2|analysis: atm brca1 brca2|analysis:  apc bmpr1a brca1 brca2|analysis: atm bap1 brca1 brca2|analysis:  brca1 brca2|screened for variants in brca1 & brca2|screened for variants in brca1 brca2|analysis: atm  brca1 brca2|screened by sequence analysis in this patient.  apc bmpr1a  brca1  brca2|analysis in this patient.  apc  bmpr1a  brca1 brca2|analysis: apc atm bmpr1a brca1 brca2|analysis: atm  bap1 brca1 brca2|analysis in this patient. apc bmpr1a brca1 brca2|analysis in this patient. brca1 brca2|been screened for mutations in brca1 amd brca2|analysis: aip brca1 brca2|scanning for mutations in the brca1 and brca2 genes is now complete|genes brca1 brca2 tp53 pten stk11 and cdh1 have been screened by sequence|genes brca1 and brca2 have been screened by sequence analysis in this patient|by sequence and dosage analysis: atm¹ brca1 brca2|this sample has now been activated for full brca1 and brca2 screening as requested"), 
+                             "full for both",
+                             ifelse(
+                                    str_detect(Report, pattern = "brca1 brca2 scanning was not completed|if further screening of brca1 and brca2 is required please|please note that sequencing of brca1 and brca2 is incomplete and no further testing will be performed|if further screening of brca1 and brca2 is required please|further brca1 brca2 screening can be performed on request|requirement to continue brca1 brca2 screening|this analysis is unable to exclude the possibility|does not exclude the possibility|unable to exclude the possibility|a repeat sample is required to compete brca analysis"), 
+                             "incomplete each", 
+                             ifelse(
+                                    str_detect(Report, pattern = "mutation scanning in brca1 is available upon|if there is a clinical requirement to continue brca1|mutation scanning in brca1 is in progress|currently undergoing mutation scanning in brca1"), 
+                             "incomplete for brca1", 
+                             ifelse(
+                                    str_detect(Report, pattern = "mutation scanning in brca2 is available upon|if there is a clinical requirement to continue brca2|mutation scanning in brca2 is in progress|currently undergoing mutation scanning in brca2"), 
+                             "incomplete for brca2", "")))),
+         specific = ifelse(str_detect(Report, pattern = "does not have the familial|does not have the familial likely pathogenic brca1|does not have the familial likely pathogenic brca2|the familial brca1 variant is absent in this patient.|the familial brca2 variant is absent in this patient.|the familial brca1 deletion is absent in this patient.|the familial brca2 deletion is absent in this patient.|the familial brca1 mutation is absent in this patient.|the familial brca2 mutation is absent in this patient.|the familial brca1 mutation is absent in this patient.|the familial brca2 mutation is absent in this patient.|this patient does not have the familial brca1 mutation.|this patient does not have the familial brca2 mutation.|the familial brca2 sequence variant is absent in this patient.|the familial brca1 sequence variant is absent in this patient.|the familial pathogenic brca1 variant is absent in this patient.|the familial pathogenic brca2 variant is absent in this patient.|the familial pathogenic brca1 mutation is absent in this patient.|the familial pathogenic brca2 mutation is absent in this patient.|the familial pathogenic brca1 duplication is absent in this patient.|the familial pathogenic brca2 duplication is absent in this patient.|the familial likely pathogenic brca2 sequence variant is absent in this patient.|the familial likely pathogenic brca1 sequence variant is absent in this patient"), 
+                           "familial test",""),
+         BRCA1 = ifelse(str_detect(
+                                    Report, pattern = "is heterozygous for pathogenic brca1|is heterozygous for the brca1 frameshift mutation|is heterozygous for the familial pathogenic brca1|is heterozygous for the pathogenic brca1|is heterozygous for the frameshift mutation c.40654068deltcaa in brca1"), 
+                        "pathogenic", 
+                  ifelse(str_detect(
+                                    Report, pattern = "no mutation in brca1|no exon dosage mutation in brca1|mutations in brca1&2 have not been|no pathogenic mutation in brca1 or brca2 has|mutation screening in brca1 is now complete and no mutation|the familial brca1 mutation is absent|no clearly pathogenic change in brca1 or brca2 has|pathogenic brca1 variant is absent|analysis: atm¹ brca1 brca2 chek2¹ palb2 pten stk11 tp53. no pathogenic|brca1 brca2 cdk4 cdkn2a mlh1 msh2 msh6 mutyh pms2 pten smad4 stk11 no pathogenic|patient does not have the familial brca1|analysis of brca1 and brca2 showed no evidence|patient does not have the familial pathogenic brca1|no pathogenic variant in brca1 or brca2 has|no pathogenic variant in brca2 has|no pathogenic variant in brca1 or brca2 has|analysis: atm brca1 brca2 chek2 palb2 pten stk11 tp53. no pathogenic|analysis: brca1 brca2. no pathogenic variant was identified. summary: no pathogenic variant has|analysis: atm brca1 brca2 cdh1 chek2 palb2 pten stk11 tp53. no pathogenic variant was|no pathogenic variant in brca1 brca2|analysis: brca1 brca2. no pathogenic variant was|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic variant was identified|creened for brca1 mutations by sequence analysis and mlpa. no pathogenic mutation was identified|pathogenic brca1 mutation is absent|common ashkenazi jewish mutations have not been detected|analysis: brca1 brca2 cdh1 palb2 pten stk11 tp53. no pathogenic mutation was identified.|brca1 brca2 tp53 pten and stk11 have been screened by sequence analysis in this patient. no pathogenic mutation was identified|brca1 sequence variant c.5154gt has not been detected|brca1 brca2 tp53 pten and stk11 have been screened by sequence analysis in this patient. no pathogenic mutation was identified.|no clearly pathogenic mutation has been identified in brca1 or brca2|analysis: apc bmpr1a brca1 brca2 cdh1 epcam grem1 mlh1 msh2 msh6 mutyh nthl1 palb2 pms2 pold1 pole pten scg5 smad4 stk11 tp53. this patient is heterozygous for the pathogenic nthl1 mutations c.268ct p.gln90ter and c.390ca p.tyr130ter. assuming that the mutations are in trans this confirms a clinical diagnosis of nthl1-associated polyposis fap3. testing of relatives|no pathogenic mutation has been identified in stk11 brca1 brca2|mlh1 msh2 msh6 smad4 bmpr1a cdh1 stk11 brca1 brca2 pten no pathogenic mutation was identified|no pathogenic mutation has been identified in the cancer predisposing genes mlh1 msh2 msh6 pms2 cdh1 stk11 brca1 brca2|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic mutation was identified.|is heterozygous for the brca2 sequence variant c.10110ga|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic mutation was identified.|no deletion duplication in brca1 has|brca1 and brca2 have been screened by sequence analysis in this patient. no pathogenic mutation was identified|brca1 showed no evidence of a gene deletion or duplication|familial brca1 sequence variant is absent|brca1 and brca2 is now complete. summary: no clearly pathogenic change has been identified in this patient|analysis: apc atm bmpr1a brca1 brca2 chek2 c.1100del only epcam grem1 mlh1 msh2 msh6 mutyh nthl1 palb2 pms2 pold1|pole pten smad4 stk11 tp53. no pathogenic mutation was identified.|no clearly pathogenic mutation has been identified in stk11 brca1 brca2"), 
+                         "wild type", 
+                  ifelse(str_detect(
+                                    Report, pattern = "variant of unknown significance has been identified in brca1|is heterozygous for two brca1 sequence variants of uncertain signficance|c.533213gt in brca1|is heterozygous for two brca1 sequence variants of uncertain clinical significance|c.2521ct p.r841w in brca1 has been|c.548-9ag in brca1 has been identified|c.2521ct p.r841w in brca1 has been identified|is heterozygous for the brca1 sequence variant c.2521ct p.arg841trp|a variant of unknown clinical significance has been identified in brca1|the sequence variant c.4956ga p.met1652ile in brca1"), 
+                         "VUS",    
+                  ifelse(str_detect(
+                                    Report, pattern = "mutation screening of brca1 and brca2 is in progress and will be reported separately|unfortunately dna extraction failed on this sample|as requested brca1 2 testing is in progress and will be reported separately|analysis of brca1 brca2 and palb2 is in progress and will be reported separately|we have extracted dna however as we only received 3ml in edta this may not be sufficient to complete the analysis.|require a repeat sample to enable us to complete sequence analysis of brca1|dna has been extracted and stored. this test is not available without assessment by the clinical genetics team|brca1 and brca2 testing is in progress and will be reported separately|brca1 2 is in progress and will be reported separately|insufficient sample|brca1 2 testing is being performed as requested by dr hoffman consultant oncologist|a repeat sample is requested to enable the completion of mutation scanning in brca1|word report - normal summary: word report - normal file|sample received was inappropriately labelled|brca1 2 testing is in progress and will be reported separately|we have been unable to obtain any results from this sample|sample received was inappropriately labelled|brca1 2 testing is in progress and will be reported separately|we have been unable to obtain any results from this sample"), 
+                        "inconclusive",     
+                  ifelse(!(str_detect(
+                                    Report, pattern = "brca")), 
+                        "inconclusive", ""))))),
+         BRCA2 = ifelse(str_detect(
+                                    Report, pattern = "is heterozygous for pathogenic brca2|is heterozygous for the brca2 frameshift mutation|is heterozygous for the familial pathogenic brca2|is heterozygous for the pathogenic brca2|this result is consistent with the patient's affected status and the patient is at high risk of developing further brca2-related cancers|brca2 sequence variant c.578ct p.ser193phe|frameshift mutation c.44784481delaaag in brca2|frameshift mutation c.69446947deltaaa in brca2|is heterozygous for the brca2 splice site mutation c.7977-1gc|is heterozygous for the frameshift mutation c.65886589delaa in brca2|is heterozygous for the likely pathogenic brca2|is heterozygous for the frameshift mutation c.65886589delaa in brca2|is heterozygous for the nonsense mutation c.9572ga p.trp3191x in brca2|is heterozygous for the nonsense mutation c.9572ga p.trp3191x in brca2"), 
+                        "pathogenic", 
+                  ifelse(str_detect(
+                                    Report, pattern = "no mutation in brca2|no exon dosage mutation in brca2|mutations in brca1&2 have not been|no pathogenic mutation in brca1 or brca2 has|mutation screening in brca2 is now complete and no mutation|the familial brca2 mutation is absent|no clearly pathogenic change in brca1 or brca2 has|pathogenic brca2 variant is absent|analysis: atm¹ brca1 brca2 chek2¹ palb2 pten stk11 tp53. no pathogenic|brca1 brca2 cdk4 cdkn2a mlh1 msh2 msh6 mutyh pms2 pten smad4 stk11 no pathogenic|patient does not have the familial brca2|analysis of brca1 and brca2 showed no evidence|patient does not have the familial pathogenic brca2|no pathogenic variant in brca1 or brca2 has|no pathogenic variant in brca2 has|no pathogenic variant in brca1 or brca2 has|analysis: atm brca1 brca2 chek2 palb2 pten stk11 tp53. no pathogenic|analysis: brca1 brca2. no pathogenic variant was identified. summary: no pathogenic variant has|analysis: atm brca1 brca2 cdh1 chek2 palb2 pten stk11 tp53. no pathogenic variant was|no pathogenic variant in brca1 brca2|analysis: brca1 brca2. no pathogenic variant was|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic variant|creened for brca2 mutations by sequence analysis and mlpa. no pathogenic mutation was identified|pathogenic brca2 mutation is absent|common ashkenazi jewish mutations have not been detected|analysis: brca1 brca2 cdh1 palb2 pten stk11 tp53. no pathogenic mutation was identified.|brca1 brca2 tp53 pten and stk11 have been screened by sequence analysis in this patient. no pathogenic mutation was identified|brca1 brca2 tp53 pten and stk11 have been screened by sequence analysis in this patient. no pathogenic mutation was identified.|no clearly pathogenic mutation has been identified in brca1 or brca2|analysis: apc bmpr1a brca1 brca2 cdh1 epcam grem1 mlh1 msh2 msh6 mutyh nthl1 palb2 pms2 pold1 pole pten scg5 smad4 stk11 tp53. this |patient is heterozygous for the pathogenic nthl1 mutations c.268ct p.gln90ter and c.390ca p.tyr130ter. assuming that the mutations are |in trans this confirms a clinical diagnosis of nthl1-associated polyposis fap3. testing of relatives|there is no evidence of a brca2 gene deletion or duplication|no pathogenic mutation has been identified in stk11 brca1 brca2|pathogenic brca2 sequence variant is absent|mlh1 msh2 msh6 smad4 bmpr1a cdh1 stk11 brca1 brca2 pten no pathogenic mutation was identified|no pathogenic mutation has been identified in the cancer predisposing genes mlh1 msh2 msh6 pms2 cdh1 stk11 brca1 brca2|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic mutation was identified.|is heterozygous for the brca2 sequence variant c.10110ga|no dosage mutation in brca2|analysis: atm brca1 brca2 chek2 c.1100del only palb2 pten stk11 tp53. no pathogenic mutation was identified.|brca1 and brca2 have been screened by sequence analysis in this patient. no pathogenic mutation was identified|familial brca2 sequence variant is absent|brca1 and brca2 is now complete. summary: no clearly pathogenic change has been identified in this patient|analysis: apc atm bmpr1a brca1 brca2 chek2 c.1100del only epcam grem1 mlh1 msh2 msh6 mutyh nthl1 palb2 pms2 pold1|pole pten smad4 stk11 tp53. no pathogenic mutation was identified.|no clearly pathogenic mutation has been identified in stk11 brca1 brca2|brca1 and brca2 is now complete. summary: no clearly pathogenic change has been identified in this patient|analysis: apc atm bmpr1a brca1 brca2 chek2 c.1100del only epcam grem1 mlh1 msh2 msh6 mutyh nthl1 palb2 pms2 pold1|pole pten smad4 stk11 tp53. no pathogenic mutation was identified.|no clearly pathogenic mutation has been identified in stk11 brca1 brca2"), 
+                        "wild type",  
+                  ifelse(str_detect(
+                                    Report, pattern = "variant of unknown significance has been identified in brca2|is heterozygous for two brca2 sequence variants of uncertain signficance|is heterozygous for the brca2 sequence variant c.8905ga|a variant of unknown clinical significance has been identified in brca2|c.10120ag p.t3374a in brca2 has been identified|is heterozygous for the brca2 sequence variant c.714716dupaag which is of uncertain clinical significance|c.10120ag p.t3374a in brca2 has been identified"), 
+                        "VUS",   
+                  ifelse(str_detect(
+                                    Report, pattern = "mutation screening of brca1 and brca2 is in progress and will be reported separately|unfortunately dna extraction failed on this sample|as requested brca1 2 testing is in progress and will be reported separately|analysis of brca1 brca2 and palb2 is in progress and will be reported separately|we have extracted dna however as we only received 3ml in edta this may not be sufficient to complete the analysis.|dna has been extracted and stored. this test is not available without assessment by the clinical genetics team|brca1 and brca2 testing is in progress and will be reported separately|brca1 2 is in progress and will be reported separately|insufficient sample|brca1 2 testing is being performed as requested by dr hoffman consultant oncologist|word report - normal summary: word report - normal file||sample received was inappropriately labelled|brca1 2 testing is in progress and will be reported separately|we have been unable to obtain any results from this sample"), 
+                        "inconclusive",      
+                  ifelse(!(str_detect(
+                                    Report, pattern = "brca")), 
+                        "inconclusive", "")))))
+         ) %>%
+  aggregate(by = list(Genetics_duplicated$ID), FUN = c)
+
+Duplicated_analysis_clean <- Duplicated_analysis %>%
+  transmute(ID= Group.1, 
+            Report = str_replace_all(Report, pattern = c("c\\(\"" = "", "\", \"" = "", "\"\\)" = "")),
+            BRCA1 = str_replace_all(BRCA1, pattern = c("c\\(\"" = "", "\", \"" = "", "\"\\)" = "")), 
+            BRCA2 = str_replace_all(BRCA2, pattern = c("c\\(\"" = "", "\", \"" = "", "\"\\)" = "")),
+            test = str_replace_all(test, pattern = c("c\\(\"" = "", "\", \"" = "", "\"\\)" = "")),
+            specific = str_replace_all(specific, pattern = c("c\\(\"" = "", "\", \"" = "", "\"\\)" = ""))) %>%
+  mutate(BRCA1 = str_replace_all(BRCA1, pattern = c("wild typeinconclusivewild typewild typewild typeinconclusiveinconclusiveinconclusive" = "wild type", 
+                                                    "wild typeinconclusivewild typeinconclusiveinconclusivewild type" = "wild type",
+                                                    "wild typeinconclusiveinconclusivewild type" = "wild type",
+                                                    "inconclusiveinconclusiveinconclusive" = "inconclusive",
+                                                    "inconclusivewild typewild typeinconclusive" = "wild type",
+                                                    "wild typeinconclusivewild typeinconclusive" = "wild type", 
+                                                    "inconclusiveinconclusivewild type" = "wild type",
+                                                    "wild typeinconclusiveinconclusive" = "wild type", 
+                                                    "inconclusivewild typeinconclusive" = "wild type",
+                                                    "wild typewild typewild type" = "wild type", 
+                                                    "wild typeinconclusive" = "wild type", 
+                                                    "VUSVUS" = "VUS", 
+                                                    "wild typeinconclusive" = "wild type", 
+                                                    "inconclusivewild type" = "wild type", 
+                                                    "inconclusiveinconclusive" = "inconclusive", 
+                                                    "inconclusivewild typewild type" = "wild type", 
+                                                    "pathogenicpathogenic" = "pathogenic", 
+                                                    "wild typeinconclusive" = "wild type",
+                                                    "inconclusivepathogenic" = "pathogenic", 
+                                                    "wild typepathogenic" = "pathogenic", 
+                                                    "wild typeVUS" = "VUS", 
+                                                    "inconclusiveinconclusive" = "inconclusive",
+                                                    "wild typepathogenic" = "pathogenic", 
+                                                    "wild typeVUS" = "VUS", 
+                                                    "wild typeVUSinconclusivewild type" = "VUS", 
+                                                    "wild typeVUSVUS" = "VUS",
+                                                    "wild typewild type" = "wild type", 
+                                                    "VUSwild type" = "VUS",
+													"wild typewild type" = "wild type")),
+         BRCA2 = str_replace_all(BRCA2, pattern = c("wild typeinconclusivewild typewild typewild typeinconclusiveinconclusiveinconclusive" = "wild type", 
+                                                    "wild typeinconclusivewild typeinconclusiveinconclusivewild type" = "wild type",
+                                                    "wild typeinconclusiveinconclusivewild type" = "wild type",
+                                                    "inconclusiveinconclusiveinconclusive" = "inconclusive",
+                                                    "inconclusivewild typewild typeinconclusive" = "wild type",
+                                                    "wild typeinconclusivewild typeinconclusive" = "wild type", 
+                                                    "inconclusiveinconclusivewild type" = "wild type",
+                                                    "wild typeinconclusiveinconclusive" = "wild type", 
+                                                    "inconclusivewild typeinconclusive" = "wild type",
+                                                    "wild typewild typewild type" = "wild type", 
+                                                    "wild typeinconclusive" = "wild type", 
+                                                    "VUSVUS" = "VUS", 
+                                                    "wild typeinconclusive" = "wild type", 
+                                                    "inconclusivewild type" = "wild type", 
+                                                    "inconclusiveinconclusive" = "inconclusive", 
+                                                    "inconclusivewild typewild type" = "wild type", 
+                                                    "pathogenicpathogenic" = "pathogenic", 
+                                                    "wild typeinconclusive" = "wild type",
+                                                    "inconclusivepathogenic" = "pathogenic", 
+                                                    "wild typepathogenic" = "pathogenic", 
+                                                    "wild typeVUS" = "VUS", 
+                                                    "inconclusiveinconclusive" = "inconclusive",
+                                                    "wild typepathogenic" = "pathogenic", 
+                                                    "wild typeVUS" = "VUS", 
+                                                    "wild typeVUSinconclusivewild type" = "VUS", 
+                                                    "wild typeVUSVUS" = "VUS",
+                                                    "wild typewild type" = "wild type", 
+                                                    "VUSwild type" = "VUS",
+													"wild typewild type" = "wild type")), 
+         test = ifelse(str_detect(test, pattern = "full for both"),
+                       "full for both",
+                       test),
+         test = str_replace(test, pattern = "incomplete for brca2incomplete for brca2", replacement = "incomplete for brca2"), 
+         BRCA1 = empty_as_na(BRCA1), 
+         BRCA2 = empty_as_na(BRCA2), 
+         BRCA1 = ifelse((test == "incomplete for brca1" | test == "incomplete each") & BRCA2 == "pathogenic" & BRCA1 == "wild type", 
+                        "incomplete, pat in BRCA2", 
+                        ifelse(is.na(BRCA1) & test == "full for both", "wild type", BRCA1)),
+         BRCA2 = ifelse((test == "incomplete for brca2" | test == "incomplete each") & BRCA1 == "pathogenic" & BRCA2 == "wild type", 
+                        "incomplete, pat in BRCA1",  
+                        ifelse(is.na(BRCA2) & test == "full for both", "wild type", BRCA2))
+         )
+
+```
+# Summary of duplicated IDs
+```{r}
+Duplicated_analysis_clean %>%
+  count(BRCA1)
+
+Duplicated_analysis_clean %>%
+  count(BRCA2)
+
+summary_duplicated <- Duplicated_analysis_clean %>%
+  count(BRCA1, BRCA2) %>%
+  arrange(BRCA1)
+```
+# Summary 
+```{r}
+Genetics_output <- rbind(Genetics_unique_output, Duplicated_analysis_clean) %>%
+  mutate(BRCA1 = factor(BRCA1), 
+         BRCA2 = factor(BRCA2),
+         test = factor(test))
+Genetics_output %>%
+  count(BRCA1)
+
+Genetics_output %>%
+  count(BRCA2)
+
+summary_total <- Genetics_output %>%
+  count(BRCA1, BRCA2) %>%
+  arrange(BRCA1)
+  
+
+
+
+
+
+temp <- Genetics_unique_output %>%
+  transmute(PseudoPatientID = ID, BRCA1, BRCA2)
+
+merged_code_result_with_Genetics <- left_join(Genetics1, temp, by = ("ID" = "PseudoPatientID")) %>%
+  write.csv(row.names = F, file = "Output/Genetics_output_unique.csv")
+```
