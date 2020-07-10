@@ -3,16 +3,7 @@ title: "03.02.2020 BRCA strings"
 output: word_document
 ---
 
-# In this version 
-BRCA1_and_BRCA2 analysis was badly written. There were some searchers for non-brca1/2 specific terms in pathogenic, wt and VUS. This lead to incorrect results, about 4 per 100, but this is also due to the second mistake:
 
-THe order of ifelse in BRCA1_andBRCA2 had to be changed too. now the order is pathogenic -> VUS -> WT instead of pathogenic -> WT -> VUS.
-
-# To be fixed
-
-Maybe look at the NAs in uniques? make sure they can be replaced the way I did.
-
-there are 40 more BRCA1 pathogens than BRCA2. look for some stats on frequencies.
 
 # Setup
 
